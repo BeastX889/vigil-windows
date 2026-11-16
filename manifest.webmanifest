@@ -1,0 +1,20 @@
+{
+  "id": "/vigil/",
+  "name": "Vigil – Always-On Clock",
+  "short_name": "Vigil",
+  "description": "A calm always-on clock for a spare monitor or your laptop: ten faces, your colours, keeps the screen awake, gentle on OLED.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#000000",
+  "theme_color": "#000000",
+  "lang": "en",
+  "dir": "ltr",
+  "categories": ["utilities", "lifestyle", "productivity"],
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "launch_handler": { "client_mode": "focus-existing" }
+}
