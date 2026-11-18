@@ -18,6 +18,7 @@ const listeners = new Set();
 export const pro = {
   owned: false,       // unlocked right now
   available: false,   // the Store billing service is reachable (Store install)
+  ready: false,       // the Store knows the Pro add-on (it can be bought right now)
   price: '$2.99',
   busy: false,
   onChange(fn) { listeners.add(fn); },
@@ -61,6 +62,7 @@ export async function initPro() {
   try {
     const details = await s.getDetails(PRO_IDS);
     const d = details?.[0];
+    pro.ready = !!d;
     if (d?.price) pro.price = new Intl.NumberFormat(undefined, { style: 'currency', currency: d.price.currency }).format(+d.price.value);
   } catch { /* keep the default price label */ }
   try { await refreshOwnership(); } catch { /* offline: keep the cached answer */ }
@@ -93,11 +95,11 @@ export async function restorePro() {
   return pro.owned;
 }
 
-// Local test double: ?pro=store (not owned), ?pro=owned, ?pro=web is handled by not mocking at all.
+// Local test double: ?pro=store (not owned), ?pro=owned, ?pro=cancel, ?pro=soon (add-on not live yet); no ?pro = plain browser.
 function mockService(kind) {
   let owned = kind === 'owned';
   return {
-    async getDetails() { return [{ itemId: PRO_IDS[0], title: 'Vigil Pro', price: { currency: 'USD', value: '2.99' } }]; },
+    async getDetails() { return kind === 'soon' ? [] : [{ itemId: PRO_IDS[0], title: 'Vigil Pro', price: { currency: 'USD', value: '2.99' } }]; },
     async listPurchases() { return owned ? [{ itemId: PRO_IDS[0], purchaseToken: 'mock' }] : []; },
     paymentRequest() {
       return { async show() { if (kind === 'cancel') { const e = new Error('cancelled'); e.name = 'AbortError'; throw e; } owned = true; return { complete: async () => {} }; } };

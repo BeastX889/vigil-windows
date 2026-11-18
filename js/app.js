@@ -243,8 +243,8 @@ function buildDrawer() {
   body.append(pro.owned
     ? h('div', { class: 'pro-card owned' }, h('b', {}, 'Vigil Pro'), h('span', {}, 'Everything is unlocked. Thank you for supporting Vigil!'))
     : h('div', { class: 'pro-card' }, h('b', {}, 'Vigil Pro'), h('span', {}, 'All 10 faces, 8 extra fonts, your own photo and the On move and Scheduled modes. One payment, yours for good.'),
-      h('div', { class: 'row' }, h('button', { class: 'btn primary', type: 'button', onclick: () => openSheet() }, `Unlock for ${pro.price}`),
-        pro.available ? h('button', { class: 'btn ghost', type: 'button', disabled: pro.busy, onclick: doRestore }, 'Restore purchase') : null)));
+      h('div', { class: 'row' }, h('button', { class: 'btn primary', type: 'button', onclick: () => openSheet() }, pro.available && !pro.ready ? 'See what’s in Pro' : `Unlock for ${pro.price}`),
+        pro.available && pro.ready ? h('button', { class: 'btn ghost', type: 'button', disabled: pro.busy, onclick: doRestore }, 'Restore purchase') : null)));
   // Faces
   const faces = h('div', { class: 'faces' }, FACES.map(([id, title, blurb]) => {
     const c = h('canvas');
@@ -340,7 +340,10 @@ function openSheet(note = '') {
     h('p', { class: 'hint' }, 'One payment, no subscription. Unlocks everything, now and in future updates.'),
     h('ul', { class: 'perks' }, PERKS.map(([b, s]) => h('li', {}, h('b', {}, b), h('span', {}, s)))),
     note ? h('p', { class: 'sheet-note' }, note) : null,
-    pro.available
+    pro.available && !pro.ready
+      ? h('div', { class: 'sheet-acts' }, h('button', { class: 'btn primary big', type: 'button', disabled: true }, 'Coming soon'),
+          h('p', { class: 'hint' }, 'Vigil Pro will be available to buy here in a day or two. Everything free keeps working in the meantime.'))
+      : pro.available
       ? h('div', { class: 'sheet-acts' }, h('button', { class: 'btn primary big', type: 'button', disabled: pro.busy, onclick: doBuy }, pro.busy ? 'Opening the Store…' : `Unlock for ${pro.price}`),
           h('button', { class: 'btn ghost', type: 'button', disabled: pro.busy, onclick: doRestore }, 'Restore purchase'))
       : h('div', { class: 'sheet-acts' }, h('a', { class: 'btn primary big', href: STORE_URL, target: '_blank', rel: 'noopener' }, 'Get Vigil from the Microsoft Store'),
