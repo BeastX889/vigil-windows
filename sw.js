@@ -1,7 +1,7 @@
 // Offline cache: every app file is cached on install, then served cache-first.
-const VERSION = 'vigil-win-v1.0.0';
+const VERSION = 'vigil-win-v1.1.0';
 const FILES = [
-  './', 'index.html', 'privacy.html', 'styles.css', 'manifest.webmanifest', 'js/app.js', 'js/faces.js',
+  './', 'index.html', 'privacy.html', 'styles.css', 'manifest.webmanifest', 'js/app.js', 'js/faces.js', 'js/pro.js',
   'fonts/orbitron.ttf', 'fonts/bebasneue.ttf', 'fonts/playfair.ttf', 'fonts/comfortaa.ttf', 'fonts/spacemono.ttf',
   'icons/icon-192.png', 'icons/icon-512.png', 'icons/maskable-512.png',
 ];

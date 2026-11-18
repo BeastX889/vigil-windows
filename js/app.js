@@ -1,4 +1,5 @@
 import { FACES, FONTS, WEIGHTS, DATE_STYLES, PALETTE, drawFrame, zonedParts } from './faces.js';
+import { pro, initPro, buyPro, restorePro, STORE_URL, FREE_FACES, FREE_FONTS, FREE_MODES } from './pro.js';
 
 /* ---------------- settings ---------------- */
 const prefers24h = (() => { try { return !new Intl.DateTimeFormat(undefined, { hour: 'numeric' }).resolvedOptions().hour12; } catch { return true; } })();
@@ -14,6 +15,17 @@ const load = () => { try { return { ...DEFAULTS, ...JSON.parse(localStorage.getI
 let S = load();
 function save() { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch { /* private mode: settings last this session */ } }
 function setS(patch) { Object.assign(S, patch); save(); redraw(true); refreshDrawer(); }
+
+/* ---------------- Pro ---------------- */
+const lockedFace = id => !pro.owned && !FREE_FACES.includes(id);
+const lockedFont = id => !pro.owned && !FREE_FONTS.includes(id);
+const lockedMode = id => !pro.owned && !FREE_MODES.includes(id);
+// What actually shows: anything Pro falls back to its free version until Pro is owned.
+function eff() {
+  if (pro.owned) return S;
+  return { ...S, face: lockedFace(S.face) ? 'stacked' : S.face, font: lockedFont(S.font) ? 'system' : S.font,
+    mode: lockedMode(S.mode) ? 'always' : S.mode, useBackground: false };
+}
 
 /* ---------------- live state ---------------- */
 const state = { now: new Date(), battery: null, faceImage: null, background: null };
@@ -44,8 +56,9 @@ function inSchedule(d) {
   return a === b ? true : a < b ? (t >= a && t < b) : (t >= a || t < b);
 }
 function clockVisible(now) {
-  if (S.mode === 'peek') return Date.now() < peekUntil;
-  if (S.mode === 'scheduled') return inSchedule(now) || Date.now() < peekUntil;
+  const mode = eff().mode;
+  if (mode === 'peek') return Date.now() < peekUntil;
+  if (mode === 'scheduled') return inSchedule(now) || Date.now() < peekUntil;
   return true;
 }
 
@@ -62,7 +75,7 @@ function redraw(force) {
   const w = canvas.width, h = canvas.height;
   const u = Math.min(w, h) / 360;
   const off = S.pixelShift ? [SHIFT[shiftStep][0] * 4 * u, SHIFT[shiftStep][1] * 4 * u] : [0, 0];
-  drawFrame(ctx, w, h, S, state, { offset: off });
+  drawFrame(ctx, w, h, eff(), state, { offset: off });
   const vis = clockVisible(state.now);
   canvas.classList.toggle('off', !vis);
   canvas.style.opacity = vis ? String(S.brightness) : '0';
@@ -104,7 +117,7 @@ function activity() {
   document.body.classList.remove('idle');
   clearTimeout(idleTimer);
   idleTimer = setTimeout(() => { if (document.getElementById('drawer').hidden) document.body.classList.add('idle'); }, 3000);
-  if (S.mode !== 'always') { const was = clockVisible(new Date()); peekUntil = Date.now() + S.peekSeconds * 1000; if (!was) redraw(true); }
+  if (eff().mode !== 'always') { const was = clockVisible(new Date()); peekUntil = Date.now() + S.peekSeconds * 1000; if (!was) redraw(true); }
 }
 ['mousemove', 'mousedown', 'touchstart', 'wheel'].forEach(e => window.addEventListener(e, activity, { passive: true }));
 
@@ -116,9 +129,11 @@ canvas.addEventListener('dblclick', toggleFullscreen);
 document.addEventListener('fullscreenchange', setHudIcons);
 
 function cycleFace(d) {
-  const i = FACES.findIndex(f => f[0] === S.face);
-  setS({ face: FACES[(i + d + FACES.length) % FACES.length][0] });
-  flash(FACES[(i + d + FACES.length) % FACES.length][1]);
+  const list = FACES.filter(f => !lockedFace(f[0]));
+  const i = Math.max(0, list.findIndex(f => f[0] === eff().face));
+  const next = list[(i + d + list.length) % list.length];
+  setS({ face: next[0] });
+  flash(pro.owned ? next[1] : `${next[1]} · 7 more faces with Pro`);
 }
 let flashEl = null;
 function flash(text) {
@@ -135,7 +150,7 @@ window.addEventListener('keydown', e => {
   const k = e.key.toLowerCase();
   if (k === 'f') { e.preventDefault(); toggleFullscreen(); }
   else if (k === 's' || k === ',') { e.preventDefault(); openDrawer(); }
-  else if (k === 'escape') closeDrawer();
+  else if (k === 'escape') { if (!sheet.hidden) closeSheet(); else closeDrawer(); }
   else if (e.key === 'ArrowRight') cycleFace(1);
   else if (e.key === 'ArrowLeft') cycleFace(-1);
 });
@@ -191,7 +206,7 @@ function refreshPreviews() {
       const dpr = Math.min(2, window.devicePixelRatio || 1);
       const w = c.clientWidth * dpr || 320, hh = Math.round(w * 10 / 16);
       c.width = w; c.height = hh;
-      drawFrame(c.getContext('2d'), w, hh, { ...S, face, scale: 1.45 }, { ...state, now: new Date() }, { background: true });
+      drawFrame(c.getContext('2d'), w, hh, { ...eff(), face, scale: 1.45 }, { ...state, now: new Date() }, { background: true });
     }
   }, 60);
 }
@@ -223,20 +238,28 @@ function timeZones() {
 function buildDrawer() {
   previews.length = 0;
   body.innerHTML = '';
+  const E = eff();
+  // Pro
+  body.append(pro.owned
+    ? h('div', { class: 'pro-card owned' }, h('b', {}, 'Vigil Pro'), h('span', {}, 'Everything is unlocked. Thank you for supporting Vigil!'))
+    : h('div', { class: 'pro-card' }, h('b', {}, 'Vigil Pro'), h('span', {}, 'All 10 faces, 8 extra fonts, your own photo and the On move and Scheduled modes. One payment, yours for good.'),
+      h('div', { class: 'row' }, h('button', { class: 'btn primary', type: 'button', onclick: () => openSheet() }, `Unlock for ${pro.price}`),
+        pro.available ? h('button', { class: 'btn ghost', type: 'button', disabled: pro.busy, onclick: doRestore }, 'Restore purchase') : null)));
   // Faces
   const faces = h('div', { class: 'faces' }, FACES.map(([id, title, blurb]) => {
     const c = h('canvas');
     previews.push({ canvas: c, face: id });
-    return h('button', { class: 'face', type: 'button', title: blurb, 'aria-pressed': String(S.face === id), onclick: () => setS({ face: id }) }, c, h('span', {}, title));
+    const locked = lockedFace(id);
+    return h('button', { class: 'face', type: 'button', title: locked ? `${blurb} (Pro)` : blurb, 'aria-pressed': String(E.face === id), onclick: () => locked ? openSheet() : setS({ face: id }) }, c, h('span', {}, title, locked ? h('em', { class: 'pro-tag' }, 'PRO') : null));
   }));
   body.append(h('div', { class: 'sec' }, h('h3', {}, 'Clock face'), faces));
 
   // Face-specific options
   const extra = h('div', { class: 'sec' });
-  if (S.face === 'signature') extra.append(h('h3', {}, 'Your line'), h('input', { type: 'text', maxlength: '60', value: S.customText, placeholder: 'Stay curious.', style: { width: '100%' }, oninput: e => { S.customText = e.target.value; save(); redraw(true); }, onchange: refreshPreviews }));
-  if (S.face === 'image') extra.append(h('h3', {}, 'Photo'), h('div', { class: 'row' }, h('button', { class: 'btn', type: 'button', onclick: () => pickImage('vigil.faceImage', 700, 0.85) }, state.faceImage ? 'Change photo' : 'Choose a photo'),
+  if (E.face === 'signature') extra.append(h('h3', {}, 'Your line'), h('input', { type: 'text', maxlength: '60', value: S.customText, placeholder: 'Stay curious.', style: { width: '100%' }, oninput: e => { S.customText = e.target.value; save(); redraw(true); }, onchange: refreshPreviews }));
+  if (E.face === 'image') extra.append(h('h3', {}, 'Photo'), h('div', { class: 'row' }, h('button', { class: 'btn', type: 'button', onclick: () => pickImage('vigil.faceImage', 700, 0.85) }, state.faceImage ? 'Change photo' : 'Choose a photo'),
     state.faceImage ? h('button', { class: 'btn', type: 'button', onclick: () => { try { localStorage.removeItem('vigil.faceImage'); } catch { /* */ } state.faceImage = null; redraw(true); refreshDrawer(); } }, 'Remove') : null));
-  if (S.face === 'world') {
+  if (E.face === 'world') {
     extra.append(h('h3', {}, 'Second city'), select('worldZone', timeZones().map(z => [z, z.replace(/_/g, ' ')])));
     extra.querySelector('select').style.maxWidth = '100%'; extra.querySelector('select').style.width = '100%';
   }
@@ -250,7 +273,8 @@ function buildDrawer() {
   body.append(h('div', { class: 'sec' }, h('h3', {}, 'Time'),
     h('div', { class: 'row' }, h('span', {}, 'Format'), seg('use24h', [[false, '12-hour'], [true, '24-hour']])),
     S.use24h ? null : toggle('leadingZero', 'Leading zero', 'Show 09:30 instead of 9:30'),
-    h('div', { class: 'row' }, h('span', {}, 'Font'), select('font', Object.entries(FONTS).map(([k, v]) => [k, v.title]))),
+    h('div', { class: 'row' }, h('span', {}, 'Font'), h('select', { 'aria-label': 'Font', onchange: e => { const v = e.target.value; if (lockedFont(v)) { e.target.value = E.font; openSheet(); } else setS({ font: v }); } },
+      Object.entries(FONTS).map(([k, v]) => h('option', { value: k, selected: E.font === k }, lockedFont(k) ? `${v.title} · Pro` : v.title)))),
     h('div', { class: 'lbl' }, 'Weight'), seg('weight', WEIGHTS),
     h('div', { class: 'row' }, h('span', {}, 'Size'), ...range('scale', 0.6, 1.8, 0.05, v => Math.round(v * 100) + '%'))));
 
@@ -261,7 +285,10 @@ function buildDrawer() {
     toggle('showBattery', 'Show battery', navigator.getBattery ? 'Laptops only' : 'Not available on this device')));
 
   // Background
-  body.append(h('div', { class: 'sec' }, h('h3', {}, 'Background photo'),
+  if (!pro.owned) body.append(h('div', { class: 'sec' }, h('h3', {}, 'Background photo ', h('em', { class: 'pro-tag' }, 'PRO')),
+    h('p', { class: 'hint' }, 'Put one of your own photos behind the clock, dimmed so it stays easy on the eyes.'),
+    h('button', { class: 'btn', type: 'button', onclick: () => openSheet() }, 'Choose a photo')));
+  else body.append(h('div', { class: 'sec' }, h('h3', {}, 'Background photo'),
     h('div', { class: 'row' }, h('button', { class: 'btn', type: 'button', onclick: () => pickImage('vigil.background', 1920, 0.82) }, state.background ? 'Change photo' : 'Choose a photo'),
       state.background ? h('button', { class: 'btn', type: 'button', onclick: () => { try { localStorage.removeItem('vigil.background'); } catch { /* */ } state.background = null; setS({ useBackground: false }); } }, 'Remove') : null),
     state.background ? toggle('useBackground', 'Show behind the clock') : null,
@@ -271,10 +298,11 @@ function buildDrawer() {
   const wakeEl = h('div', { class: 'status', id: 'wakeStatus' });
   body.append(h('div', { class: 'sec' }, h('h3', {}, 'Display'),
     h('div', { class: 'lbl' }, 'When to show the clock'),
-    seg('mode', [['always', 'Always'], ['peek', 'On move'], ['scheduled', 'Scheduled']]),
-    h('p', { class: 'hint' }, { always: 'The clock is always on screen.', peek: 'The screen stays black until you move the mouse or press a key.', scheduled: 'The clock shows only between the hours below. Move the mouse to peek.' }[S.mode]),
-    S.mode === 'peek' || S.mode === 'scheduled' ? h('div', { class: 'row' }, h('span', {}, 'Peek for'), select('peekSeconds', [[5, '5 seconds'], [10, '10 seconds'], [30, '30 seconds'], [60, '1 minute']])) : null,
-    S.mode === 'scheduled' ? h('div', { class: 'row' }, h('span', {}, 'From'), h('input', { type: 'time', value: S.scheduleStart, onchange: e => setS({ scheduleStart: e.target.value || '07:00' }) }), h('span', {}, 'to'), h('input', { type: 'time', value: S.scheduleEnd, onchange: e => setS({ scheduleEnd: e.target.value || '23:00' }) })) : null,
+    h('div', { class: 'seg' }, [['always', 'Always'], ['peek', 'On move'], ['scheduled', 'Scheduled']].map(([v, l]) =>
+      h('button', { type: 'button', 'aria-pressed': String(E.mode === v), onclick: () => lockedMode(v) ? openSheet() : (setS({ mode: v }), activity()) }, l, lockedMode(v) ? h('em', { class: 'pro-tag' }, 'PRO') : null))),
+    h('p', { class: 'hint' }, { always: 'The clock is always on screen.', peek: 'The screen stays black until you move the mouse or press a key.', scheduled: 'The clock shows only between the hours below. Move the mouse to peek.' }[E.mode]),
+    E.mode === 'peek' || E.mode === 'scheduled' ? h('div', { class: 'row' }, h('span', {}, 'Peek for'), select('peekSeconds', [[5, '5 seconds'], [10, '10 seconds'], [30, '30 seconds'], [60, '1 minute']])) : null,
+    E.mode === 'scheduled' ? h('div', { class: 'row' }, h('span', {}, 'From'), h('input', { type: 'time', value: S.scheduleStart, onchange: e => setS({ scheduleStart: e.target.value || '07:00' }) }), h('span', {}, 'to'), h('input', { type: 'time', value: S.scheduleEnd, onchange: e => setS({ scheduleEnd: e.target.value || '23:00' }) })) : null,
     h('div', { class: 'row' }, h('span', {}, 'Brightness'), ...range('brightness', 0.08, 1, 0.01, v => Math.round(v * 100) + '%')),
     toggle('pixelShift', 'Burn-in protection', 'Nudges the clock a few pixels every minute'),
     toggle('keepAwake', 'Keep the screen on', 'Stops Windows dimming or sleeping the display'),
@@ -283,7 +311,7 @@ function buildDrawer() {
   // Help
   body.append(h('div', { class: 'sec' }, h('h3', {}, 'Shortcuts'),
     h('p', { class: 'hint', style: { lineHeight: '1.9' } }, h('kbd', {}, 'F'), ' full screen  ', h('kbd', {}, '←'), ' ', h('kbd', {}, '→'), ' change face  ', h('kbd', {}, 'S'), ' settings  ', h('kbd', {}, 'Esc'), ' close'),
-    h('p', { class: 'hint' }, 'Vigil 1.0 · © 2026 LumioLab · No accounts, no tracking. Your settings and photos stay on this PC. ', h('a', { href: 'privacy.html', target: '_blank', rel: 'noopener', style: { color: 'var(--muted)' } }, 'Privacy policy'))));
+    h('p', { class: 'hint' }, `Vigil 1.0${pro.owned ? ' Pro' : ''} · © 2026 LumioLab · No accounts, no tracking. Your settings and photos stay on this PC. `, h('a', { href: 'privacy.html', target: '_blank', rel: 'noopener', style: { color: 'var(--muted)' } }, 'Privacy policy'))));
 
   refreshWake();
   requestAnimationFrame(refreshPreviews); refreshPreviews();
@@ -300,6 +328,42 @@ function refreshDrawer() {
   buildDrawer();
   body.scrollTop = scroll;
 }
+/* ---------------- upgrade sheet ---------------- */
+const sheet = document.getElementById('sheet');
+const PERKS = [['7 more faces', 'Thin, Analog Classic, Edge, Calendar, Signature, Image and World'], ['8 more fonts', 'Condensed, Serif, Mono, Orbitron, Bebas Neue and more'],
+  ['Your own photo', 'Behind the clock, or as the Image face'], ['On move and Scheduled', 'A black screen until you need it, or only during the hours you choose']];
+function openSheet(note = '') {
+  const card = sheet.querySelector('.sheet-card');
+  card.innerHTML = '';
+  card.append(...[h('button', { class: 'x', type: 'button', 'aria-label': 'Close', onclick: closeSheet }, '×'),
+    h('div', { class: 'sheet-title' }, 'Vigil Pro'),
+    h('p', { class: 'hint' }, 'One payment, no subscription. Unlocks everything, now and in future updates.'),
+    h('ul', { class: 'perks' }, PERKS.map(([b, s]) => h('li', {}, h('b', {}, b), h('span', {}, s)))),
+    note ? h('p', { class: 'sheet-note' }, note) : null,
+    pro.available
+      ? h('div', { class: 'sheet-acts' }, h('button', { class: 'btn primary big', type: 'button', disabled: pro.busy, onclick: doBuy }, pro.busy ? 'Opening the Store…' : `Unlock for ${pro.price}`),
+          h('button', { class: 'btn ghost', type: 'button', disabled: pro.busy, onclick: doRestore }, 'Restore purchase'))
+      : h('div', { class: 'sheet-acts' }, h('a', { class: 'btn primary big', href: STORE_URL, target: '_blank', rel: 'noopener' }, 'Get Vigil from the Microsoft Store'),
+          h('p', { class: 'hint' }, 'Pro is bought inside the Microsoft Store version of Vigil.'))].filter(Boolean));
+  sheet.hidden = false;
+  card.querySelector('.primary')?.focus();
+}
+function closeSheet() { sheet.hidden = true; }
+sheet.addEventListener('click', e => { if (e.target === sheet) closeSheet(); });
+async function doBuy() {
+  const r = await buyPro();
+  if (r === 'owned') { closeSheet(); flash('Vigil Pro unlocked. Thank you!'); }
+  else if (r === 'cancelled') { if (!sheet.hidden) openSheet(); }
+  else openSheet(r === 'unavailable' ? 'The Store couldn’t be reached. Check your connection and try again.' : 'Something went wrong with the purchase. You haven’t been charged. Please try again.');
+}
+async function doRestore() {
+  const owned = await restorePro();
+  if (owned) { closeSheet(); flash('Vigil Pro restored'); }
+  else if (!sheet.hidden) openSheet('No earlier purchase was found for this Microsoft account.');
+  else flash('No earlier purchase found');
+}
+pro.onChange(() => { redraw(true); refreshDrawer(); if (!sheet.hidden && !pro.owned) openSheet(); });
+
 function openDrawer() { drawer.hidden = false; document.body.classList.add('drawer-open'); document.body.classList.remove('idle'); buildDrawer(); drawer.querySelector('.face[aria-pressed="true"]')?.focus({ preventScroll: true }); }
 function closeDrawer() { drawer.hidden = true; document.body.classList.remove('drawer-open'); activity(); }
 document.getElementById('drawerClose').addEventListener('click', closeDrawer);
@@ -312,6 +376,7 @@ canvas.addEventListener('click', () => { if (!drawer.hidden) closeDrawer(); });
   if ('serviceWorker' in navigator && !devHost) navigator.serviceWorker.register('sw.js').catch(() => { /* optional */ });
   setHudIcons();
   sizeCanvas();
+  initPro().catch(() => { /* Pro stays locked */ });
   await loadImages();
   try { await document.fonts.load(`100 40px ${FONTS[S.font]?.stack || 'sans-serif'}`); } catch { /* */ }
   loop();
